@@ -74,7 +74,7 @@ func TestPlace(t *testing.T) {
 			URI:  "at://gazetteer.social/social.gazetteer.place/456",
 			Location: Shape{
 				Type:     ShapeTypeID,
-				Geometry: geomBytes,
+				Geometry: string(geomBytes), // Changed from []byte to string
 				MimeType: "application/geo+json",
 			},
 			Name: "San Francisco Bay Area",
@@ -272,7 +272,7 @@ func TestShape(t *testing.T) {
 		// Test with unsupported mime type
 		shape := Shape{
 			Type:     ShapeTypeID,
-			Geometry: []byte(`{}`),
+			Geometry: `{}`, // Changed from []byte to string
 			MimeType: "application/unsupported",
 		}
 		_, err = shape.AsGeometry()

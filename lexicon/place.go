@@ -18,11 +18,11 @@ const (
 
 // Place represents the main place object in the social.gazetteer.place lexicon
 type Place struct {
-	Type       string      `json:"$type"`
-	URI        string      `json:"uri,omitempty"`
-	Location   interface{} `json:"location,omitempty"`
-	Name       string      `json:"name,omitempty"`
-	Attributes interface{} `json:"attributes,omitempty"`
+	Type       string         `json:"$type"`
+	URI        string         `json:"uri,omitempty"`
+	Location   any            `json:"location,omitempty"`
+	Name       string         `json:"name,omitempty"`
+	Attributes map[string]any `json:"attributes,omitempty"`
 }
 
 // Location represents a location with latitude and longitude
@@ -36,7 +36,7 @@ type Location struct {
 // Shape represents a geometry object with coordinates
 type Shape struct {
 	Type     string `json:"$type"`
-	Geometry []byte `json:"geometry"`
+	Geometry string `json:"geometry"` // Changed to string to store serialized geometry
 	MimeType string `json:"mimeType,omitempty"`
 }
 
@@ -203,7 +203,7 @@ func ShapeFromGeoJSON(geojsonBytes []byte) (Shape, error) {
 
 	return Shape{
 		Type:     ShapeTypeID,
-		Geometry: geojsonBytes,
+		Geometry: string(geojsonBytes), // Store as string
 		MimeType: "application/geo+json",
 	}, nil
 }
@@ -216,12 +216,9 @@ func ShapeFromWKT(wktString string) (Shape, error) {
 		return Shape{}, fmt.Errorf("invalid WKT: %s", err)
 	}
 
-	// Convert to bytes for storage
-	wktBytes := []byte(wktString)
-
 	return Shape{
 		Type:     ShapeTypeID,
-		Geometry: wktBytes,
+		Geometry: wktString, // Store the original WKT string
 		MimeType: "application/vnd.geo+wkt",
 	}, nil
 }
@@ -237,40 +234,40 @@ func ShapeFromGeometry(geom orb.Geometry) (Shape, error) {
 
 	return Shape{
 		Type:     ShapeTypeID,
-		Geometry: bytes,
+		Geometry: string(bytes), // Store as string
 		MimeType: "application/geo+json",
 	}, nil
 }
 
-// AsGeometry parses the Shape's geometry as GeoJSON and returns an orb.Geometry
+// AsGeometry parses the Shape's geometry as GeoJSON or WKT and returns an orb.Geometry
 func (s Shape) AsGeometry() (orb.Geometry, error) {
 	if s.MimeType == "" {
 		// Try to guess the format based on the first character
 		if len(s.Geometry) > 0 && (s.Geometry[0] == '{' || s.Geometry[0] == '[') {
 			// Looks like JSON, assume GeoJSON
-			geom, err := geojson.UnmarshalGeometry(s.Geometry)
+			geom, err := geojson.UnmarshalGeometry([]byte(s.Geometry))
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal GeoJSON geometry: %s", err)
 			}
 			return geom.Geometry(), nil
 		} else {
 			// Try as WKT
-			geom, err := wkt.Unmarshal(string(s.Geometry))
+			geom, err := wkt.Unmarshal(s.Geometry)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal geometry: %s", err)
+				return nil, fmt.Errorf("failed to unmarshal WKT geometry: %s", err)
 			}
 			return geom, nil
 		}
 	} else if s.MimeType == "application/geo+json" {
 		// GeoJSON format
-		geom, err := geojson.UnmarshalGeometry(s.Geometry)
+		geom, err := geojson.UnmarshalGeometry([]byte(s.Geometry))
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal GeoJSON geometry: %s", err)
 		}
 		return geom.Geometry(), nil
 	} else if s.MimeType == "application/vnd.geo+wkt" {
 		// WKT format
-		geom, err := wkt.Unmarshal(string(s.Geometry))
+		geom, err := wkt.Unmarshal(s.Geometry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal WKT geometry: %s", err)
 		}
@@ -278,4 +275,44 @@ func (s Shape) AsGeometry() (orb.Geometry, error) {
 	}
 
 	return nil, fmt.Errorf("unsupported mime type: %s", s.MimeType)
+}
+
+// PlaceFromGeoJSON creates a Place from a GeoJSON Feature
+func PlaceFromGeoJSON(feature *geojson.Feature, uri string) (Place, error) {
+	place := Place{
+		Type:       PlaceTypeID,
+		URI:        uri,
+		Attributes: make(map[string]any),
+	}
+
+	// Extract the name from properties
+	if name, ok := feature.Properties["wof:name"].(string); ok {
+		place.Name = name
+	} else if name, ok := feature.Properties["name"].(string); ok {
+		place.Name = name
+	}
+
+	// Extract attributes from properties
+	for k, v := range feature.Properties {
+		place.Attributes[k] = v
+	}
+
+	// Set location based on geometry type
+	geom := feature.Geometry
+	if geom != nil {
+		if geom.GeoJSONType() == "Point" {
+			// For point geometry, create a Location
+			point := geom.(orb.Point)
+			place.Location = LocationFromPoint(point)
+		} else {
+			// For non-point geometry, create a Shape
+			shape, err := ShapeFromGeometry(geom)
+			if err != nil {
+				return Place{}, fmt.Errorf("failed to create shape: %s", err)
+			}
+			place.Location = shape
+		}
+	}
+
+	return place, nil
 }
