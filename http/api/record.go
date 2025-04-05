@@ -46,7 +46,7 @@ func GetRecordHandler(app *spatial_app.SpatialApplication, opts *GetRecordHandle
 		}
 
 		// Create place URI
-		uri := "at://gazetteer.social/org.whosonfirst.place/" + req.URL.Query().Get(P_RECORD_ID)
+		uri := "at://whosonfirst.org/social.gazetteer.place/" + req.URL.Query().Get(P_RECORD_ID)
 
 		// Convert GeoJSON feature to Place
 		place, err := lexicon.PlaceFromGeoJSON(feature, uri)
